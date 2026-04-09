@@ -1,0 +1,221 @@
+{
+  "entities": {
+    "AIAgent": {
+      "title": "AI Agent",
+      "description": "Represents an operational AI agent in the team.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string", "enum": ["Idle", "Working", "Waiting", "Needs Approval"] },
+        "activeTask": { "type": "string" },
+        "tasksCompleted": { "type": "number" },
+        "lastUpdate": { "type": "string", "format": "date-time" },
+        "avatarUrl": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "status"]
+    },
+    "AgentTask": {
+      "title": "Agent Task",
+      "description": "A task assigned to an AI agent or pending in the inbox.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "failed", "Needs Approval"] },
+        "assignedTo": { "type": "string", "description": "Agent ID" },
+        "department": { "type": "string" },
+        "brandId": { "type": "string" },
+        "refId": { "type": "string", "description": "Reference to a previous task" },
+        "claimedBy": { "type": "string" },
+        "claimedAt": { "type": "string", "format": "date-time" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "Urgent"] },
+        "type": { "type": "string", "enum": ["brand_research", "content_plan", "design_direction", "video_plan", "ads_copy", "whatsapp_reply", "lead_intake", "lead_qualification", "send_price", "handoff_to_sales", "publish_post", "review_content"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "failedAt": { "type": "string", "format": "date-time" },
+        "errorMessage": { "type": "string" }
+      },
+      "required": ["status", "type", "createdAt"]
+    },
+    "TaskOutput": {
+      "title": "Task Output",
+      "description": "The result or output of a completed agent task.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "type": { "type": "string" },
+        "brandId": { "type": "string" },
+        "result": { "type": "object" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["taskId", "type", "result", "ownerId", "createdAt"]
+    },
+    "WhatsAppChannel": {
+      "title": "WhatsApp Channel",
+      "description": "Configuration for a WhatsApp Business channel.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "brandId": { "type": "string" },
+        "phoneNumberId": { "type": "string" },
+        "wabaId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Connected", "Disconnected", "Pending"] },
+        "accountName": { "type": "string" },
+        "accessToken": { "type": "string" }
+      },
+      "required": ["id", "brandId", "phoneNumberId", "status"]
+    },
+    "WhatsAppConversation": {
+      "title": "WhatsApp Conversation",
+      "description": "A conversation with a customer on WhatsApp.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "channelId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastTimestamp": { "type": "string", "format": "date-time" },
+        "intent": { "type": "string", "enum": ["Pricing", "Product Inquiry", "Complaint", "Order", "Follow-up", "Unknown"] },
+        "leadScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["Open", "Resolved", "Escalated", "Pending AI"] },
+        "unreadCount": { "type": "number" }
+      },
+      "required": ["id", "channelId", "customerPhone", "status"]
+    },
+    "WhatsAppMessage": {
+      "title": "WhatsApp Message",
+      "description": "An individual message within a WhatsApp conversation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "text": { "type": "string" },
+        "sender": { "type": "string", "enum": ["Customer", "AI", "Agent"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Sent", "Delivered", "Read", "Failed"] },
+        "waMessageId": { "type": "string" }
+      },
+      "required": ["id", "conversationId", "text", "sender", "timestamp"]
+    },
+    "Deliverable": {
+      "title": "Deliverable",
+      "description": "A high-level output produced by an agent that requires user review.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "brandId": { "type": "string" },
+        "department": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "in_review", "approved", "needs_revision", "final"] },
+        "version": { "type": "number" },
+        "content": { "type": "object" },
+        "createdBy": { "type": "string", "description": "Agent ID" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["brandId", "department", "type", "title", "status", "version", "ownerId"]
+    },
+    "DeliverableFeedback": {
+      "title": "Deliverable Feedback",
+      "description": "Feedback or actions taken on a deliverable.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "deliverableId": { "type": "string" },
+        "authorType": { "type": "string", "enum": ["user", "agent"] },
+        "authorId": { "type": "string" },
+        "message": { "type": "string" },
+        "actionType": { "type": "string", "enum": ["comment", "approve", "request_revision"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deliverableId", "authorType", "authorId", "actionType", "createdAt"]
+    },
+    "DeliverableVersion": {
+      "title": "Deliverable Version",
+      "description": "A specific version of a deliverable's content.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "deliverableId": { "type": "string" },
+        "version": { "type": "number" },
+        "content": { "type": "object" },
+        "changeSummary": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["deliverableId", "version", "content", "createdAt"]
+    },
+    "CampaignBrief": {
+      "title": "Campaign Brief",
+      "description": "The strategic foundation for an agency campaign.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "brandId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "objective": { "type": "string" },
+        "offer": { "type": "string" },
+        "audience": { "type": "string" },
+        "heroProduct": { "type": "string" },
+        "secondaryProducts": { "type": "array", "items": { "type": "string" } },
+        "platforms": { "type": "array", "items": { "type": "string" } },
+        "deliverables": { "type": "array", "items": { "type": "string" } },
+        "tone": { "type": "string" },
+        "deadline": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["draft", "approved", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["brandId", "ownerId", "objective", "offer", "audience", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/ai_agents/{agentId}": {
+      "schema": "AIAgent",
+      "description": "Operational AI agents."
+    },
+    "/agent_tasks/{taskId}": {
+      "schema": "AgentTask",
+      "description": "Tasks for agents and the operations inbox."
+    },
+    "/task_outputs/{outputId}": {
+      "schema": "TaskOutput",
+      "description": "Outputs generated by agent tasks."
+    },
+    "/whatsapp_channels/{channelId}": {
+      "schema": "WhatsAppChannel",
+      "description": "WhatsApp Business API channel configurations."
+    },
+    "/whatsapp_conversations/{conversationId}": {
+      "schema": "WhatsAppConversation",
+      "description": "Customer conversations on WhatsApp."
+    },
+    "/whatsapp_messages/{messageId}": {
+      "schema": "WhatsAppMessage",
+      "description": "Messages sent and received via WhatsApp."
+    },
+    "/deliverables/{deliverableId}": {
+      "schema": "Deliverable",
+      "description": "High-level agency outputs."
+    },
+    "/deliverable_feedback/{feedbackId}": {
+      "schema": "DeliverableFeedback",
+      "description": "Feedback on deliverables."
+    },
+    "/deliverable_versions/{versionId}": {
+      "schema": "DeliverableVersion",
+      "description": "Historical versions of deliverables."
+    },
+    "/campaign_briefs/{briefId}": {
+      "schema": "CampaignBrief",
+      "description": "Campaign strategic briefs."
+    }
+  }
+}
