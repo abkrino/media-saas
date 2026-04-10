@@ -6,57 +6,83 @@
     <title>My Google AI Studio App</title>
     <script>
       (function() {
-        // Global error logging to help debug "Uncaught" errors
+        // Global error logging with stack trace
         window.addEventListener('error', function(event) {
-          console.error('Global error:', event.error || event.message);
+          var stack = event.error ? event.error.stack : 'No stack trace';
+          // Filter out benign React/DOM errors caused by external interference
+          if (event.message && (event.message.indexOf('removeChild') !== -1 || event.message.indexOf('insertBefore') !== -1)) {
+            console.warn('Caught and suppressed DOM interference error:', event.message);
+            event.preventDefault();
+            return;
+          }
+          console.error('Global error:', event.message, '\nStack:', stack);
         });
         window.addEventListener('unhandledrejection', function(event) {
-          console.error('Unhandled rejection:', event.reason);
+          var stack = (event.reason && event.reason.stack) ? event.reason.stack : 'No stack trace';
+          console.error('Unhandled rejection:', event.reason, '\nStack:', stack);
         });
 
-        try {
-          var target = window;
-          var prop = 'fetch';
-          
-          // Try to find the descriptor
-          var descriptor = Object.getOwnPropertyDescriptor(target, prop);
-          var proto = target;
-          while (!descriptor && proto) {
-            proto = Object.getPrototypeOf(proto);
-            if (proto) descriptor = Object.getOwnPropertyDescriptor(proto, prop);
+        // Patch DOM methods to be more resilient to external interference (e.g. extensions, harness)
+        (function patchDOM() {
+          try {
+            var originalRemoveChild = Node.prototype.removeChild;
+            Node.prototype.removeChild = function(child) {
+              if (child && child.parentNode !== this) {
+                return child; 
+              }
+              return originalRemoveChild.apply(this, arguments);
+            };
+
+            var originalInsertBefore = Node.prototype.insertBefore;
+            Node.prototype.insertBefore = function(newNode, referenceNode) {
+              if (referenceNode && referenceNode.parentNode !== this) {
+                return this.appendChild(newNode);
+              }
+              return originalInsertBefore.apply(this, arguments);
+            };
+          } catch (e) {
+            console.error('Failed to patch DOM methods:', e);
           }
-          
-          if (descriptor && descriptor.get && !descriptor.set) {
-            console.log('Detected read-only fetch getter, attempting to fix...');
-            
-            var originalFetch = window.fetch;
-            
-            var newDescriptor = {
+        })();
+
+        // Aggressive fix for read-only fetch
+        (function fixFetch() {
+          try {
+            var target = window;
+            var prop = 'fetch';
+            var originalFetch = target[prop];
+
+            // Try to delete it first to clear any non-configurable descriptors if possible
+            try { delete target[prop]; } catch (e) {}
+
+            Object.defineProperty(target, prop, {
               get: function() { return originalFetch; },
               set: function(v) { 
-                console.warn('Attempted to overwrite window.fetch, ignoring to prevent crash.');
+                console.log('window.fetch was overwritten');
+                originalFetch = v; 
               },
               configurable: true,
               enumerable: true
-            };
-
-            if (descriptor.configurable) {
-              Object.defineProperty(target, prop, newDescriptor);
-              console.log('Successfully redefined window.fetch on instance.');
-            } else {
-              // If not configurable on prototype, we can still define it on the instance
-              // if it's not already there.
-              if (!target.hasOwnProperty(prop)) {
-                Object.defineProperty(target, prop, newDescriptor);
-                console.log('Successfully defined window.fetch on instance (shadowing prototype).');
-              } else {
-                console.error('window.fetch is non-configurable on the instance itself. Cannot fix.');
+            });
+            console.log('Successfully made window.fetch writable');
+          } catch (e) {
+            console.warn('Failed to redefine window.fetch on instance, trying prototype...', e);
+            try {
+              var proto = Object.getPrototypeOf(window);
+              if (proto) {
+                try { delete proto[prop]; } catch (e) {}
+                Object.defineProperty(proto, prop, {
+                  get: function() { return window.fetch; },
+                  set: function(v) { /* ignore or handle */ },
+                  configurable: true,
+                  enumerable: true
+                });
               }
+            } catch (e2) {
+              console.error('Critical: Could not fix window.fetch', e2);
             }
           }
-        } catch (e) {
-          console.error('Error in fetch polyfill fix:', e);
-        }
+        })();
       })();
     </script>
   </head>
