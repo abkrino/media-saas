@@ -233,9 +233,27 @@ export default function App() {
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'agent_tasks'));
 
     const convsQuery = query(collection(db, 'whatsapp_conversations'), where('ownerId', '==', user.uid), orderBy('lastMessageAt', 'desc'));
+    const fallbackConvsQuery = query(collection(db, 'whatsapp_conversations'), where('ownerId', '==', user.uid));
+    let fallbackConversationsUnsub: (() => void) | null = null;
+
     const unsubConvs = onSnapshot(convsQuery, (snap) => {
-      setConversations(snap.docs.map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'whatsapp_conversations'));
+      const mapped = snap.docs.map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation));
+      setConversations(mapped);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'whatsapp_conversations');
+      if (!fallbackConversationsUnsub) {
+        fallbackConversationsUnsub = onSnapshot(fallbackConvsQuery, (fallbackSnap) => {
+          const mapped = fallbackSnap.docs
+            .map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation))
+            .sort((a, b) => {
+              const aTime = a.lastMessageAt?.toMillis ? a.lastMessageAt.toMillis() : 0;
+              const bTime = b.lastMessageAt?.toMillis ? b.lastMessageAt.toMillis() : 0;
+              return bTime - aTime;
+            });
+          setConversations(mapped);
+        }, (fallbackErr) => handleFirestoreError(fallbackErr, OperationType.LIST, 'whatsapp_conversations (fallback)'));
+      }
+    });
 
     const deliverablesQuery = query(collection(db, 'deliverables'), where('ownerId', '==', user.uid), orderBy('updatedAt', 'desc'));
     const unsubDeliverables = onSnapshot(deliverablesQuery, (snap) => {
@@ -261,6 +279,7 @@ export default function App() {
       unsubAgents();
       unsubTasks();
       unsubConvs();
+      fallbackConversationsUnsub?.();
       unsubDeliverables();
       unsubBriefs();
       stopAgentListeners();
@@ -486,9 +505,14 @@ export default function App() {
               await addDoc(collection(db, 'whatsapp_messages'), {
                 conversationId: cid,
                 customerWaId: conv?.customerWaId || '',
+                to: conv?.customerWaId || '',
                 content: text,
+                message: text,
                 direction: 'outbound',
+                type: 'outbound',
                 messageType: 'text',
+                status: 'pending',
+                brandId: conv?.brandId || activeBrand?.id || '',
                 createdAt: serverTimestamp(),
                 ownerId: user.uid
               });
