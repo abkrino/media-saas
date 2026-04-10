@@ -34,7 +34,8 @@ import {
   doc,
   addDoc,
   limit,
-  serverTimestamp
+  serverTimestamp,
+  getDocFromServer
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
@@ -48,11 +49,78 @@ interface WhatsAppManagerProps {
 
 export function WhatsAppManager({ brandId, conversations, onSendMessage, language }: WhatsAppManagerProps) {
   const t = translations[language];
-  const [activeTab, setActiveTab] = useState<'Inbox' | 'Auto Replies' | 'Qualification' | 'Follow-up' | 'Templates' | 'Settings'>('Inbox');
+  const [activeTab, setActiveTab] = useState<'Inbox' | 'Auto Replies' | 'Qualification' | 'Follow-up' | 'Templates' | 'Settings' | 'Debug'>('Inbox');
   const [selectedConv, setSelectedConv] = useState<WhatsAppConversation | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [showIntelligence, setShowIntelligence] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
+  const [hasChannel, setHasChannel] = useState<boolean | null>(null);
+  const [phoneNumberId, setPhoneNumberId] = useState<string>('');
+  const [webhookLogs, setWebhookLogs] = useState<any[]>([]);
+  const [webhookError, setWebhookError] = useState<string | null>(null);
+  const [allChannels, setAllChannels] = useState<any[]>([]);
+  const [manualPhoneId, setManualPhoneId] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  const fetchLogs = async () => {
+    setWebhookError(null);
+    try {
+      const q = query(collection(db, "webhook_logs"), orderBy("timestamp", "desc"), limit(20));
+      const snap = await getDocFromServer(doc(db, 'test', 'connection')); // Just to check connection
+      // We use onSnapshot anyway, but this manual trigger can help
+    } catch (e: any) {
+      setWebhookError("Connection check failed: " + e.message);
+    }
+  };
+  useEffect(() => {
+    if (activeTab !== 'Debug') return;
+    setWebhookError(null);
+    
+    // Listen to logs
+    const qLogs = query(
+      collection(db, "webhook_logs"),
+      orderBy("timestamp", "desc"),
+      limit(20)
+    );
+    const unsubLogs = onSnapshot(qLogs, (snap) => {
+      setWebhookLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.error("Webhook Logs Listener Error:", err);
+      setWebhookError(err.message);
+    });
+
+    // Listen to all channels for this user
+    const qChannels = query(
+      collection(db, "whatsapp_channels"),
+      where("ownerId", "==", auth.currentUser?.uid)
+    );
+    const unsubChannels = onSnapshot(qChannels, (snap) => {
+      setAllChannels(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubLogs();
+      unsubChannels();
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    const q = query(
+      collection(db, "whatsapp_channels"),
+      where("brandId", "==", brandId),
+      where("ownerId", "==", auth.currentUser?.uid),
+      limit(1)
+    );
+    return onSnapshot(q, (snap) => {
+      setHasChannel(!snap.empty);
+      if (!snap.empty) {
+        setPhoneNumberId(snap.docs[0].data().phoneNumberId || '');
+      }
+    }, (err) => {
+      console.error("WhatsApp Channels Listener Error:", err);
+    });
+  }, [brandId]);
 
   useEffect(() => {
     if (!selectedConv) {
@@ -63,6 +131,7 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
     const q = query(
       collection(db, "whatsapp_messages"),
       where("conversationId", "==", selectedConv.id),
+      where("ownerId", "==", auth.currentUser?.uid),
       orderBy("createdAt", "asc")
     );
 
@@ -72,6 +141,8 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
         ...doc.data()
       })) as WhatsAppMessage[];
       setMessages(msgs);
+    }, (err) => {
+      console.error("WhatsApp Messages Listener Error:", err);
     });
 
     return () => unsubscribe();
@@ -89,37 +160,95 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
     { id: 'Qualification', label: t.qualification },
     { id: 'Follow-up', label: t.followUp },
     { id: 'Templates', label: t.templates },
-    { id: 'Settings', label: 'Settings' }
+    { id: 'Settings', label: t.settingsTab },
+    { id: 'Debug', label: t.debug }
   ];
 
-  return (
-    <div className="h-[calc(100vh-12rem)] md:h-[calc(100vh-12rem)] flex flex-col gap-4 md:gap-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl md:text-2xl font-black text-[#4A3B3B] tracking-tight">{t.whatsappManager}</h2>
-          <p className="text-[#B9AFAF] text-xs md:text-sm">{t.whatsappStatus}</p>
+  if (!brandId) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-6 bg-[#FFF9F9]">
+        <div className="w-20 h-20 bg-white shadow-xl shadow-[#FF9A9E]/10 rounded-[2rem] flex items-center justify-center border border-[#FEE2E2]">
+          <AlertCircle className="w-10 h-10 text-[#FF9A9E]" />
         </div>
-        <div className="flex items-center gap-2 bg-white border border-[#FEE2E2] rounded-2xl p-1 overflow-x-auto no-scrollbar">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={cn(
-                "px-4 md:px-6 py-2 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                activeTab === tab.id ? "bg-[#4A3B3B] text-white shadow-lg shadow-[#4A3B3B]/10" : "text-[#B9AFAF] hover:text-[#4A3B3B]"
+        <div className="space-y-2">
+          <h3 className="text-xl font-black text-[#4A3B3B]">{t.noBrandSelected || "No Brand Selected"}</h3>
+          <p className="text-sm text-[#B9AFAF] max-w-xs mx-auto">
+            {language === 'ar' 
+              ? "يا ريت تختار براند من القائمة الجانبية عشان تقدر تدير محادثات الواتساب."
+              : "Please select a brand from the sidebar to manage WhatsApp conversations."}
+          </p>
+        </div>
+        <div className="p-4 bg-white border border-[#FEE2E2] rounded-2xl text-[10px] font-bold text-[#4A3B3B] max-w-xs">
+          <p className="uppercase tracking-widest text-[#B9AFAF] mb-2">Pro Tip</p>
+          {language === 'ar'
+            ? "لو مش لاقي براندات، اتأكد إنك ضفت براند جديد من شاشة الـ Onboarding."
+            : "If you don't see any brands, make sure you've added one during onboarding."}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-12rem)] flex flex-col gap-3 md:gap-6 p-2 md:p-0 bg-[#FFF9F9]">
+      <div className="sticky top-0 z-30 bg-[#FFF9F9]/80 backdrop-blur-md pb-2 space-y-3 md:space-y-4">
+        <div className="px-2 md:px-0 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg md:text-2xl font-black text-[#4A3B3B] tracking-tight">{t.whatsappManager}</h2>
+            <div className="flex items-center gap-2">
+              <p className="text-[#B9AFAF] text-[10px] md:text-sm">{t.whatsappStatus}</p>
+              {hasChannel && (
+                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[8px] font-black uppercase rounded-full border border-green-200">
+                  Active: {phoneNumberId.slice(-4)}
+                </span>
               )}
-            >
-              {tab.label}
-            </button>
-          ))}
+            </div>
+          </div>
+        </div>
+        
+        <div className="relative group">
+          <div className="flex items-center gap-2 bg-white border border-[#FEE2E2] rounded-2xl p-1 overflow-x-auto no-scrollbar shadow-sm">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={cn(
+                  "px-4 md:px-6 py-2 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap",
+                  activeTab === tab.id ? "bg-[#4A3B3B] text-white shadow-lg shadow-[#4A3B3B]/10" : "text-[#B9AFAF] hover:text-[#4A3B3B]"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none md:hidden rounded-r-2xl" />
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 md:gap-6 min-h-0 relative">
+      <div className="flex-1 flex gap-3 md:gap-6 min-h-0 relative">
+        {hasChannel === false && activeTab !== 'Settings' && activeTab !== 'Debug' && (
+          <div className="absolute inset-0 z-20 bg-white/80 backdrop-blur-sm flex items-center justify-center p-4 md:p-6 text-center">
+            <div className="max-w-md space-y-4">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FFF5F5] rounded-2xl md:rounded-3xl flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6 md:w-8 md:h-8 text-rose-500" />
+              </div>
+              <h3 className="text-base md:text-lg font-black text-[#4A3B3B]">WhatsApp Not Configured</h3>
+              <p className="text-[10px] md:text-sm text-[#B9AFAF]">
+                You need to configure your WhatsApp API credentials for this brand before you can receive messages.
+              </p>
+              <button 
+                onClick={() => setActiveTab('Settings')}
+                className="px-6 py-2 bg-[#4A3B3B] text-white rounded-xl text-[10px] md:text-xs font-black uppercase tracking-widest"
+              >
+                Go to Settings
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Conversations List */}
         <div className={cn(
-          "w-full md:w-96 bg-white border border-[#FEE2E2] rounded-[2rem] md:rounded-[2.5rem] flex flex-col overflow-hidden transition-all",
-          selectedConv ? "hidden md:flex" : "flex"
+          "w-full md:w-96 bg-white border border-[#FEE2E2] rounded-[1.5rem] md:rounded-[2.5rem] flex flex-col overflow-hidden transition-all",
+          (selectedConv || activeTab !== 'Inbox') ? "hidden md:flex" : "flex"
         )}>
           <div className="p-4 md:p-6 border-b border-[#FEE2E2]">
             <div className="relative">
@@ -181,11 +310,201 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
 
         {/* Chat Area or Settings Area */}
         <div className={cn(
-          "flex-1 bg-white border border-[#FEE2E2] rounded-[2rem] md:rounded-[2.5rem] flex flex-col overflow-hidden transition-all",
-          (!selectedConv && activeTab !== 'Settings') ? "hidden md:flex" : "flex"
+          "flex-1 bg-white border border-[#FEE2E2] rounded-[1.5rem] md:rounded-[2.5rem] flex flex-col overflow-hidden transition-all",
+          (!selectedConv && activeTab === 'Inbox') ? "hidden md:flex" : "flex"
         )}>
           {activeTab === 'Settings' ? (
             <WhatsAppSettings brandId={brandId} />
+          ) : activeTab === 'Debug' ? (
+            <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6 bg-[#FFF9F9]">
+              <div className="bg-white border border-[#FEE2E2] rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base md:text-lg font-black text-[#4A3B3B]">System Diagnostics</h3>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={async () => {
+                        try {
+                          await addDoc(collection(db, "webhook_logs"), {
+                            timestamp: serverTimestamp(),
+                            type: "frontend_test",
+                            message: "Manual test from frontend",
+                            ownerId: auth.currentUser?.uid,
+                            brandId: brandId
+                          });
+                        } catch (e: any) {
+                          setWebhookError("Failed to add test log: " + e.message);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-[#4A3B3B] text-white rounded-lg text-[10px] font-bold hover:bg-[#2D2424] transition-colors flex items-center gap-2"
+                    >
+                      <Zap className="w-3 h-3" />
+                      Test Listener
+                    </button>
+                  </div>
+                </div>
+                
+                {webhookError && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-[10px] font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {webhookError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 text-[10px] md:text-xs">
+                  <div className="p-3 bg-[#FFF5F5] rounded-xl border border-[#FEE2E2]/50">
+                    <p className="font-bold text-[#B9AFAF] uppercase mb-1">User UID</p>
+                    <code className="break-all block">{auth.currentUser?.uid}</code>
+                  </div>
+                  <div className="p-3 bg-[#FFF5F5] rounded-xl border border-[#FEE2E2]/50">
+                    <p className="font-bold text-[#B9AFAF] uppercase mb-1">Brand ID</p>
+                    <code className="block">{brandId}</code>
+                  </div>
+                  <div className="p-3 bg-[#FFF5F5] rounded-xl border border-[#FEE2E2]/50">
+                    <p className="font-bold text-[#B9AFAF] uppercase mb-1">Phone Number ID</p>
+                    <code className="block">{phoneNumberId || 'Not Configured'}</code>
+                  </div>
+                  <div className="p-3 bg-[#FFF5F5] rounded-xl border border-[#FEE2E2]/50">
+                    <p className="font-bold text-[#B9AFAF] uppercase mb-1">Database ID</p>
+                    <code className="block">ai-studio-728a75a1-6bf9-4a4d-8d35-5b0c9b21d9cd</code>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-[#4A3B3B] uppercase tracking-widest">Manual Channel Registration</h4>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={manualPhoneId}
+                      onChange={e => setManualPhoneId(e.target.value)}
+                      placeholder="Enter Phone Number ID"
+                      className="flex-1 px-4 py-2 bg-[#FFF5F5] border border-[#FEE2E2] rounded-xl text-[10px] focus:outline-none"
+                    />
+                    <button 
+                      onClick={async () => {
+                        if (!manualPhoneId.trim()) return;
+                        setIsRegistering(true);
+                        try {
+                          await addDoc(collection(db, "whatsapp_channels"), {
+                            brandId,
+                            ownerId: auth.currentUser?.uid,
+                            phoneNumberId: manualPhoneId.trim(),
+                            status: 'Connected',
+                            createdAt: serverTimestamp(),
+                            updatedAt: serverTimestamp()
+                          });
+                          setManualPhoneId('');
+                        } catch (e: any) {
+                          setWebhookError("Manual register failed: " + e.message);
+                        } finally {
+                          setIsRegistering(false);
+                        }
+                      }}
+                      disabled={isRegistering}
+                      className="px-4 py-2 bg-[#4A3B3B] text-white rounded-xl text-[10px] font-bold disabled:opacity-50"
+                    >
+                      {isRegistering ? '...' : 'Register'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-[#4A3B3B] uppercase tracking-widest">Registered Channels</h4>
+                    <span className="text-[8px] text-[#B9AFAF] font-bold">Total: {allChannels.length}</span>
+                  </div>
+                  {allChannels.length === 0 ? (
+                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-[10px] font-bold">
+                      No WhatsApp channels registered yet. Go to Settings to connect your account.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {allChannels.map(ch => (
+                        <div key={ch.id} className="p-3 bg-white border border-[#FEE2E2] rounded-xl flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-[#4A3B3B]">{ch.phoneNumberId}</p>
+                            <p className="text-[8px] text-[#B9AFAF] uppercase">Brand: {ch.brandId === brandId ? 'Current' : ch.brandId}</p>
+                          </div>
+                          <span className="px-2 py-0.5 bg-green-50 text-green-600 rounded-full text-[8px] font-black">{ch.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#FEE2E2] rounded-2xl md:rounded-3xl p-4 md:p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base md:text-lg font-black text-[#4A3B3B]">Recent Webhook Events</h3>
+                  <button 
+                    onClick={fetchLogs}
+                    className="p-2 text-[#B9AFAF] hover:text-[#4A3B3B] transition-colors"
+                  >
+                    <Clock className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {webhookLogs.length === 0 ? (
+                    <div className="text-center py-8 md:py-12 space-y-4">
+                      <p className="text-[#B9AFAF] text-xs md:text-sm italic">No events recorded yet.</p>
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-[10px] text-left max-w-sm mx-auto">
+                        <p className="font-bold mb-1">Troubleshooting Steps:</p>
+                        <ol className="list-decimal ml-4 space-y-1">
+                          <li>Send a message from WhatsApp to your Business number.</li>
+                          <li>Check if "webhook_logs" collection exists in Firestore.</li>
+                          <li>Verify the Webhook URL in Meta is exactly: <br/><code className="break-all">https://whatsappwebhook-f7svd6bv2q-uc.a.run.app</code></li>
+                        </ol>
+                      </div>
+                    </div>
+                  ) : (
+                    webhookLogs.map((log) => (
+                      <div key={log.id} className="p-3 md:p-4 bg-[#FFF5F5] rounded-xl md:rounded-2xl space-y-2 border border-[#FEE2E2]">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "px-2 py-0.5 rounded-full text-[8px] font-black uppercase",
+                              log.type === 'raw_event' ? "bg-blue-100 text-blue-700" : 
+                              log.type === 'error' ? "bg-rose-100 text-rose-700" :
+                              log.type === 'frontend_test' ? "bg-purple-100 text-purple-700" :
+                              "bg-green-100 text-green-700"
+                            )}>
+                              {log.type}
+                            </span>
+                            {log.phoneNumberId && !allChannels.some(ch => ch.phoneNumberId === log.phoneNumberId) && (
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    await addDoc(collection(db, "whatsapp_channels"), {
+                                      brandId,
+                                      ownerId: auth.currentUser?.uid,
+                                      phoneNumberId: log.phoneNumberId,
+                                      status: 'Connected',
+                                      createdAt: serverTimestamp(),
+                                      updatedAt: serverTimestamp()
+                                    });
+                                  } catch (e: any) {
+                                    setWebhookError("Quick register failed: " + e.message);
+                                  }
+                                }}
+                                className="px-2 py-0.5 bg-[#4A3B3B] text-white rounded text-[8px] font-black uppercase hover:bg-black transition-colors"
+                              >
+                                Quick Register ID
+                              </button>
+                            )}
+                          </div>
+                          <span className="text-[8px] font-bold text-[#B9AFAF]">
+                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : 'Just now'}
+                          </span>
+                        </div>
+                        {log.message && <p className="text-[10px] font-bold text-[#4A3B3B]">{log.message}</p>}
+                        <pre className="text-[8px] md:text-[9px] overflow-x-auto p-2 md:p-3 bg-white border border-[#FEE2E2] rounded-lg md:rounded-xl font-mono text-[#4A3B3B]">
+                          {JSON.stringify(log, (key, value) => key === 'timestamp' ? undefined : value, 2)}
+                        </pre>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
           ) : selectedConv ? (
             <>
               <div className="p-4 md:p-6 border-b border-[#FEE2E2] flex items-center justify-between bg-[#FFF5F5]/10">
@@ -374,6 +693,8 @@ function WhatsAppSettings({ brandId }: { brandId?: string }) {
   const [wabaId, setWabaId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [channel, setChannel] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (!brandId) return;
@@ -391,16 +712,18 @@ function WhatsAppSettings({ brandId }: { brandId?: string }) {
         setAccessToken(data.accessToken || '');
         setWabaId(data.wabaId || '');
       }
+    }, (err) => {
+      console.error("WhatsApp Settings Listener Error:", err);
     });
   }, [brandId]);
 
   const handleSave = async () => {
-    if (!brandId || !auth.currentUser) {
-      console.error("Missing brandId or user", { brandId, user: auth.currentUser?.uid });
-      return;
-    }
+    if (!brandId || !auth.currentUser) return;
     
     setIsSaving(true);
+    setError(null);
+    setSaveSuccess(false);
+
     try {
       const data = {
         brandId,
@@ -420,91 +743,98 @@ function WhatsAppSettings({ brandId }: { brandId?: string }) {
           createdAt: serverTimestamp()
         });
       }
-      // Success feedback
-      const btn = document.getElementById('save-config-btn');
-      if (btn) {
-        const originalText = btn.innerText;
-        btn.innerText = 'Saved!';
-        btn.classList.add('bg-green-600');
-        setTimeout(() => {
-          btn.innerText = originalText;
-          btn.classList.remove('bg-green-600');
-        }, 2000);
-      }
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-      alert('Failed to save settings. Please check console for details.');
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("Failed to save settings:", err);
+      setError(err.message || 'Failed to save settings');
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="p-6 md:p-10 space-y-8 overflow-y-auto">
+    <div className="p-4 md:p-10 space-y-6 md:space-y-8 overflow-y-auto">
       <div>
-        <h3 className="text-lg md:text-xl font-black text-[#4A3B3B] mb-2">WhatsApp API Configuration</h3>
-        <p className="text-xs md:text-sm text-[#B9AFAF]">Connect your WhatsApp Business Account using Meta Graph API credentials.</p>
+        <h3 className="text-base md:text-xl font-black text-[#4A3B3B] mb-1 md:mb-2">WhatsApp API Configuration</h3>
+        <p className="text-[10px] md:text-sm text-[#B9AFAF]">Connect your WhatsApp Business Account using Meta Graph API credentials.</p>
       </div>
 
-      <div className="space-y-6 max-w-xl">
+      <div className="space-y-4 md:space-y-6 max-w-xl">
+        {error && (
+          <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-600 text-xs font-bold">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
+
+        {saveSuccess && (
+          <div className="p-4 bg-green-50 border border-green-100 rounded-2xl flex items-center gap-3 text-green-600 text-xs font-bold">
+            <CheckCircle2 className="w-4 h-4" />
+            Settings saved successfully!
+          </div>
+        )}
+
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">Phone Number ID</label>
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-2 md:ml-4">Phone Number ID</label>
           <input 
             type="text" 
             value={phoneNumberId}
             onChange={e => setPhoneNumberId(e.target.value)}
             placeholder="e.g. 105938475629384"
-            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+            className="w-full px-4 md:px-6 py-3 md:py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-xl md:rounded-2xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">System User Access Token</label>
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-2 md:ml-4">System User Access Token</label>
           <input 
             type="password" 
             value={accessToken}
             onChange={e => setAccessToken(e.target.value)}
             placeholder="EAAB..."
-            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+            className="w-full px-4 md:px-6 py-3 md:py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-xl md:rounded-2xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">WhatsApp Business Account ID</label>
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-2 md:ml-4">WhatsApp Business Account ID</label>
           <input 
             type="text" 
             value={wabaId}
             onChange={e => setWabaId(e.target.value)}
             placeholder="e.g. 938475629384756"
-            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+            className="w-full px-4 md:px-6 py-3 md:py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-xl md:rounded-2xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
           />
         </div>
 
-        <div className="pt-4">
+        <div className="pt-2 md:pt-4">
           <button 
-            id="save-config-btn"
             onClick={handleSave}
             disabled={isSaving}
-            className="w-full py-4 bg-[#4A3B3B] text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-[#2D2424] transition-all disabled:opacity-50"
+            className={cn(
+              "w-full py-3 md:py-4 text-white rounded-xl md:rounded-2xl text-xs md:text-sm font-bold flex items-center justify-center gap-3 transition-all disabled:opacity-50",
+              saveSuccess ? "bg-green-600" : "bg-[#4A3B3B] hover:bg-[#2D2424]"
+            )}
           >
-            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Settings className="w-5 h-5" />}
-            Save Configuration
+            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : saveSuccess ? <CheckCircle2 className="w-5 h-5" /> : <Settings className="w-5 h-5" />}
+            {saveSuccess ? 'Saved!' : 'Save Configuration'}
           </button>
         </div>
       </div>
 
-      <div className="bg-[#FFF5F5] border border-[#FEE2E2] rounded-[2rem] p-6 md:p-8">
-        <h4 className="text-xs font-black text-[#4A3B3B] uppercase tracking-widest mb-4">Webhook Information</h4>
-        <div className="space-y-4">
+      <div className="bg-[#FFF5F5] border border-[#FEE2E2] rounded-2xl md:rounded-[2rem] p-4 md:p-8">
+        <h4 className="text-[10px] md:text-xs font-black text-[#4A3B3B] uppercase tracking-widest mb-3 md:mb-4">Webhook Information</h4>
+        <div className="space-y-3 md:space-y-4">
           <div>
-            <p className="text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Callback URL</p>
-            <code className="block p-3 bg-white border border-[#FEE2E2] rounded-xl text-[10px] break-all">
-              https://{window.location.hostname}/api/whatsapp-webhook
+            <p className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Callback URL</p>
+            <code className="block p-2 md:p-3 bg-white border border-[#FEE2E2] rounded-lg md:rounded-xl text-[8px] md:text-[10px] break-all">
+              https://whatsappwebhook-f7svd6bv2q-uc.a.run.app
             </code>
           </div>
           <div>
-            <p className="text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Verify Token</p>
-            <code className="block p-3 bg-white border border-[#FEE2E2] rounded-xl text-[10px]">
+            <p className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Verify Token</p>
+            <code className="block p-2 md:p-3 bg-white border border-[#FEE2E2] rounded-lg md:rounded-xl text-[8px] md:text-[10px]">
               abqarino_verify_token
             </code>
           </div>

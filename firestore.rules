@@ -47,86 +47,86 @@ service cloud.firestore {
 
     // Brands
     match /brands/{brandId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Research
     match /brand_research/{brandId} {
-      allow read: if isOwner(resource.data.ownerId) || isBrandOwner(brandId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid || isBrandOwner(brandId));
       allow create: if isAuthenticated() && (request.resource.data.ownerId == request.auth.uid || isBrandOwner(brandId));
-      allow update: if isOwner(resource.data.ownerId) || isBrandOwner(brandId);
+      allow update: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isBrandOwner(brandId));
     }
 
     // Assets
     match /brand_assets/{assetId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Channels
     match /connected_channels/{channelId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Publishing
     match /publishing_jobs/{jobId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // AI Agents
     match /ai_agents/{agentId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Agent Tasks
     match /agent_tasks/{taskId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Task Outputs
     match /task_outputs/{outputId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // WhatsApp Channels
     match /whatsapp_channels/{channelId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
-      allow delete: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // WhatsApp Conversations
     match /whatsapp_conversations/{conversationId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // WhatsApp Messages
     match /whatsapp_messages/{messageId} {
-      allow read: if isOwner(resource.data.ownerId);
+      allow read: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if isOwner(resource.data.ownerId);
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
     }
 
     // Campaign Briefs
@@ -134,6 +134,12 @@ service cloud.firestore {
       allow read: if isOwner(resource.data.ownerId);
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
       allow update: if isOwner(resource.data.ownerId);
+    }
+
+    // Webhook Logs (for debugging)
+    match /webhook_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
     }
 
     // Deliverables

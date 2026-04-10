@@ -232,11 +232,6 @@ export default function App() {
       setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as AgentTask)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'agent_tasks'));
 
-    const convsQuery = query(collection(db, 'whatsapp_conversations'), where('ownerId', '==', user.uid), orderBy('lastMessageAt', 'desc'));
-    const unsubConvs = onSnapshot(convsQuery, (snap) => {
-      setConversations(snap.docs.map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation)));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'whatsapp_conversations'));
-
     const deliverablesQuery = query(collection(db, 'deliverables'), where('ownerId', '==', user.uid), orderBy('updatedAt', 'desc'));
     const unsubDeliverables = onSnapshot(deliverablesQuery, (snap) => {
       setDeliverables(snap.docs.map(d => ({ id: d.id, ...d.data() } as Deliverable)));
@@ -260,7 +255,6 @@ export default function App() {
       unsubBrands();
       unsubAgents();
       unsubTasks();
-      unsubConvs();
       unsubDeliverables();
       unsubBriefs();
       stopAgentListeners();
@@ -307,11 +301,39 @@ export default function App() {
       setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as PublishingJob)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'publishing_jobs'));
 
+    const convsQuery = query(
+      collection(db, 'whatsapp_conversations'), 
+      where('ownerId', '==', user.uid),
+      orderBy('lastMessageAt', 'desc')
+    );
+    const unsubConvs = onSnapshot(convsQuery, (snap) => {
+      const allConvs = snap.docs.map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation));
+      console.log(`WhatsApp Debug: Total conversations for user: ${allConvs.length}`);
+      
+      if (!activeBrand) {
+        setConversations([]);
+        return;
+      }
+
+      const filtered = allConvs.filter(c => c.brandId === activeBrand.id);
+      console.log(`WhatsApp Debug: Conversations for brand ${activeBrand.id}: ${filtered.length}`);
+      
+      if (allConvs.length > 0 && filtered.length === 0) {
+        console.warn("WhatsApp Warning: Conversations exist but none match the current brand ID:", {
+          currentBrandId: activeBrand.id,
+          availableBrandIds: Array.from(new Set(allConvs.map(c => c.brandId)))
+        });
+      }
+      
+      setConversations(filtered);
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'whatsapp_conversations'));
+
     return () => {
       unsubResearch();
       unsubAssets();
       unsubChannels();
       unsubJobs();
+      unsubConvs();
     };
   }, [activeBrand]);
 

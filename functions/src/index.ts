@@ -1,10 +1,29 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import axios from "axios";
 
-admin.initializeApp();
+const app = admin.initializeApp();
 
-const db = admin.firestore();
+// CRITICAL: Use the named database ID from firebase-applet-config.json
+// In firebase-admin 11.x, getFirestore(app, databaseId) is the correct way
+const db = getFirestore(app, "ai-studio-728a75a1-6bf9-4a4d-8d35-5b0c9b21d9cd");
+
+// Startup Log to verify connectivity
+(async () => {
+  try {
+    functions.logger.info("STARTING_UP", { databaseId: "ai-studio-728a75a1-6bf9-4a4d-8d35-5b0c9b21d9cd" });
+    await db.collection("webhook_logs").add({
+      timestamp: FieldValue.serverTimestamp(),
+      type: "system_startup",
+      message: "Cloud Function initialized and connected to Firestore",
+      ownerId: "SYSTEM"
+    });
+    functions.logger.info("SYSTEM_STARTUP_LOG_SUCCESS");
+  } catch (e: any) {
+    functions.logger.error("SYSTEM_STARTUP_LOG_FAILED", {error: e.message, stack: e.stack});
+  }
+})();
 
 /**
  * WhatsApp Webhook Function
@@ -30,7 +49,16 @@ export const whatsappWebhook = functions.https.onRequest(async (req, res) => {
 
   // 2. Handle Incoming WhatsApp Events (POST)
   if (req.method === "POST") {
-    const body = req.body;
+    let body = req.body;
+
+    // Meta sometimes sends body as string, parse it if needed
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        functions.logger.error("BODY_PARSE_FAILED", { body });
+      }
+    }
 
     // Log the payload for debugging
     functions.logger.info("WHATSAPP_EVENT_RECEIVED", {
@@ -49,52 +77,149 @@ export const whatsappWebhook = functions.https.onRequest(async (req, res) => {
             
             const phoneNumberId = metadata.phone_number_id;
 
-            // Look up the channel to find ownerId and brandId
-            const channelSnap = await db.collection("whatsapp_channels")
-              .where("phoneNumberId", "==", phoneNumberId)
-              .limit(1)
-              .get();
+            try {
+              // 1. WHATSAPP_EVENT_RECEIVED
+              functions.logger.info("STEP_1_LOGGING_EVENT");
+              await db.collection("webhook_logs").add({
+                timestamp: FieldValue.serverTimestamp(),
+                type: "WHATSAPP_EVENT_RECEIVED",
+                phoneNumberId,
+                metadata,
+                raw_body: body,
+                ownerId: "SYSTEM_WEBHOOK"
+              });
 
-            if (channelSnap.empty) {
-              functions.logger.warn("CHANNEL_NOT_FOUND", {phoneNumberId});
-              continue;
-            }
+              // DEBUG: Start Lookup
+              functions.logger.info("STEP_2_START_LOOKUP");
+              await db.collection("webhook_logs").add({
+                timestamp: FieldValue.serverTimestamp(),
+                type: "DEBUG_START_LOOKUP",
+                phoneNumberId,
+                ownerId: "SYSTEM_WEBHOOK"
+              });
 
-            const channelData = channelSnap.docs[0].data();
-            const ownerId = channelData.ownerId;
-            const brandId = channelData.brandId;
+              // 2. Lookup ownerId and brandId
+              functions.logger.info("STEP_2_START_LOOKUP", { phoneNumberId });
+              const channelSnap = await db.collection("whatsapp_channels")
+                .where("phoneNumberId", "==", phoneNumberId)
+                .limit(1)
+                .get();
 
-            // Check if there are messages in this change
-            if (value.messages && value.messages.length > 0) {
-              const contact = value.contacts ? value.contacts[0] : null;
-              const message = value.messages[0];
+              // DEBUG: Query Complete
+              functions.logger.info("STEP_3_QUERY_COMPLETE", { empty: channelSnap.empty, size: channelSnap.size });
+              await db.collection("webhook_logs").add({
+                timestamp: FieldValue.serverTimestamp(),
+                type: "DEBUG_QUERY_COMPLETE",
+                empty: channelSnap.empty,
+                size: channelSnap.size,
+                phoneNumberId,
+                ownerId: "SYSTEM_WEBHOOK"
+              });
 
-              // Extract data
-              const customerWaId = contact ? contact.wa_id : message.from;
-              const customerName = contact && contact.profile ? contact.profile.name : "Unknown";
-              const metaMessageId = message.id;
-              const messageType = message.type;
-
-              let content = "";
-              if (messageType === "text") {
-                content = message.text.body;
-              } else if (messageType === "interactive") {
-                content = message.interactive.button_reply?.title || 
-                          message.interactive.list_reply?.title || 
-                          "Interactive Message";
-              } else if (messageType === "button") {
-                content = message.button.text;
-              } else {
-                content = `[${messageType}]`;
+              if (channelSnap.empty) {
+                const allChannelsSnap = await db.collection("whatsapp_channels").limit(10).get();
+                const availableIds = allChannelsSnap.docs.map(d => d.data().phoneNumberId);
+                
+                await db.collection("webhook_logs").add({
+                  timestamp: FieldValue.serverTimestamp(),
+                  type: "WHATSAPP_BRAND_LOOKUP_FAILED",
+                  message: `Channel not found for Phone ID: ${phoneNumberId}. Available in DB: ${availableIds.join(', ')}`,
+                  phoneNumberId,
+                  ownerId: "SYSTEM_WEBHOOK"
+                });
+                continue;
               }
 
-              // 1. Find or Create Conversation
-              const conversationId = await findOrCreateConversation(customerWaId, customerName, content, ownerId, brandId);
+              const channelData = channelSnap.docs[0].data();
+              const ownerId = channelData.ownerId;
+              const brandId = channelData.brandId;
 
-              // 2. Save Incoming Message
-              await saveIncomingMessage(conversationId, customerWaId, messageType, content, metaMessageId, body, ownerId);
-              
-              functions.logger.info("MESSAGE_PROCESSED", {conversationId, metaMessageId, ownerId});
+              // 3. WHATSAPP_BRAND_LOOKUP_SUCCESS
+              await db.collection("webhook_logs").add({
+                timestamp: FieldValue.serverTimestamp(),
+                type: "WHATSAPP_BRAND_LOOKUP_SUCCESS",
+                phoneNumberId,
+                ownerId,
+                brandId
+              });
+
+              // Check if there are messages in this change
+              if (value.messages && value.messages.length > 0) {
+                const contact = value.contacts ? value.contacts[0] : null;
+                const message = value.messages[0];
+
+                // Extract data
+                const customerWaId = contact ? contact.wa_id : message.from;
+                const customerName = contact && contact.profile ? contact.profile.name : "Unknown";
+                const metaMessageId = message.id;
+                const messageType = message.type;
+
+                let content = "";
+                if (messageType === "text") {
+                  content = message.text.body;
+                } else if (messageType === "interactive") {
+                  content = message.interactive.button_reply?.title || 
+                            message.interactive.list_reply?.title || 
+                            "Interactive Message";
+                } else if (messageType === "button") {
+                  content = message.button.text;
+                } else {
+                  content = `[${messageType}]`;
+                }
+
+                // 4. Find or Create Conversation
+                functions.logger.info("STEP_4_CONVERSATION_LOGIC");
+                const { conversationId, isNew } = await findOrCreateConversation(customerWaId, customerName, content, ownerId, brandId);
+                
+                // 5. WHATSAPP_CONVERSATION_CREATED / FOUND
+                await db.collection("webhook_logs").add({
+                  timestamp: FieldValue.serverTimestamp(),
+                  type: isNew ? "WHATSAPP_CONVERSATION_CREATED" : "WHATSAPP_CONVERSATION_FOUND",
+                  conversationId,
+                  customerWaId,
+                  ownerId
+                });
+
+                // 6. Save Message inside whatsapp_messages
+                functions.logger.info("STEP_5_SAVE_MESSAGE");
+                const messageId = await saveIncomingMessage(conversationId, customerWaId, messageType, content, metaMessageId, body, ownerId);
+                
+                // 7. WHATSAPP_MESSAGE_SAVED
+                await db.collection("webhook_logs").add({
+                  timestamp: FieldValue.serverTimestamp(),
+                  type: "WHATSAPP_MESSAGE_SAVED",
+                  messageId,
+                  conversationId,
+                  ownerId
+                });
+
+                // 8. WHATSAPP_CONVERSATION_UPDATED
+                await db.collection("webhook_logs").add({
+                  timestamp: FieldValue.serverTimestamp(),
+                  type: "WHATSAPP_CONVERSATION_UPDATED",
+                  conversationId,
+                  lastMessage: content,
+                  ownerId
+                });
+                
+                functions.logger.info("MESSAGE_PROCESSED_SUCCESSFULLY", {conversationId, metaMessageId, ownerId});
+              }
+            } catch (innerError: any) {
+              functions.logger.error("FIRESTORE_WRITE_ERROR", {
+                message: innerError.message,
+                code: innerError.code,
+                stack: innerError.stack
+              });
+              // Try to log error one last time, but don't fail if this also fails
+              try {
+                await db.collection("webhook_logs").add({
+                  timestamp: FieldValue.serverTimestamp(),
+                  type: "WHATSAPP_PROCESSING_ERROR",
+                  message: innerError.message,
+                  phoneNumberId,
+                  ownerId: "SYSTEM_WEBHOOK"
+                });
+              } catch (e) {}
             }
           }
         }
@@ -119,6 +244,7 @@ export const whatsappWebhook = functions.https.onRequest(async (req, res) => {
  * Listens for new outbound messages in Firestore and sends them via WhatsApp API
  */
 export const onOutboundMessageCreated = functions.firestore
+  .database("ai-studio-728a75a1-6bf9-4a4d-8d35-5b0c9b21d9cd")
   .document("whatsapp_messages/{messageId}")
   .onCreate(async (snap, context) => {
     const message = snap.data();
@@ -168,7 +294,7 @@ export const onOutboundMessageCreated = functions.firestore
       await snap.ref.update({
         metaMessageId: response.data.messages[0].id,
         status: "sent",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
       });
 
       functions.logger.info("OUTBOUND_MESSAGE_SENT", {messageId: context.params.messageId, metaId: response.data.messages[0].id});
@@ -182,7 +308,7 @@ export const onOutboundMessageCreated = functions.firestore
       await snap.ref.update({
         status: "failed",
         errorMessage: error.response?.data?.error?.message || error.message,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
       });
     }
   });
@@ -201,7 +327,7 @@ async function findOrCreateConversation(customerWaId: string, customerName: stri
     .limit(1)
     .get();
 
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  const now = FieldValue.serverTimestamp();
 
   if (!query.empty) {
     const doc = query.docs[0];
@@ -214,7 +340,7 @@ async function findOrCreateConversation(customerWaId: string, customerName: stri
       customerName: customerName !== "Unknown" ? customerName : data.customerName,
       status: "open" // Re-open if closed
     });
-    return doc.id;
+    return { conversationId: doc.id, isNew: false };
   } else {
     const newDoc = await conversationsRef.add({
       brandId,
@@ -230,7 +356,7 @@ async function findOrCreateConversation(customerWaId: string, customerName: stri
       createdAt: now,
       updatedAt: now
     });
-    return newDoc.id;
+    return { conversationId: newDoc.id, isNew: true };
   }
 }
 
@@ -248,7 +374,7 @@ async function saveIncomingMessage(
 ) {
   const messagesRef = db.collection("whatsapp_messages");
 
-  await messagesRef.add({
+  const doc = await messagesRef.add({
     conversationId,
     ownerId,
     customerWaId,
@@ -257,6 +383,7 @@ async function saveIncomingMessage(
     content,
     metaMessageId,
     rawPayload,
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: FieldValue.serverTimestamp()
   });
+  return doc.id;
 }

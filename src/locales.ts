@@ -80,6 +80,9 @@ export const translations = {
     chooseCustomer: "Choose a customer from the list to start managing the sales flow.",
     intentClassification: "Intent Classification",
     handoffToSales: "Handoff to Sales",
+    debug: "Debug",
+    settingsTab: "Settings",
+    noBrandSelected: "No Brand Selected",
     // Agent Names & Roles
     ceoagent: 'CEO Agent',
     brandresearchagent: 'Brand Research Agent',
@@ -185,6 +188,9 @@ export const translations = {
     chooseCustomer: "اختار عميل من القائمة عشان تبدأ تتابع معاه المبيعات.",
     intentClassification: "تصنيف العميل",
     handoffToSales: "تحويل للمبيعات",
+    debug: "تصحيح الأخطاء",
+    settingsTab: "الإعدادات",
+    noBrandSelected: "مفيش براند مختار",
     // Agent Names & Roles
     ceoagent: 'المدير التنفيذي (CEO)',
     brandresearchagent: 'مسؤول أبحاث البراند',
