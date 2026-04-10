@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MessageSquare, 
@@ -17,25 +17,65 @@ import {
   FileText,
   Zap,
   Phone,
-  Plus
+  Plus,
+  ChevronLeft,
+  Loader2
 } from 'lucide-react';
 import { WhatsAppConversation, WhatsAppMessage } from '../data';
 import { cn } from '../lib/utils';
 import { Language, translations } from '../locales';
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot,
+  setDoc,
+  doc,
+  addDoc,
+  limit,
+  serverTimestamp
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 interface WhatsAppManagerProps {
   key?: string;
+  brandId?: string;
   conversations: WhatsAppConversation[];
   onSendMessage: (conversationId: string, text: string) => void;
   language: Language;
 }
 
-export function WhatsAppManager({ conversations, onSendMessage, language }: WhatsAppManagerProps) {
+export function WhatsAppManager({ brandId, conversations, onSendMessage, language }: WhatsAppManagerProps) {
   const t = translations[language];
-  const [activeTab, setActiveTab] = useState<'Inbox' | 'Auto Replies' | 'Qualification' | 'Follow-up' | 'Templates'>('Inbox');
+  const [activeTab, setActiveTab] = useState<'Inbox' | 'Auto Replies' | 'Qualification' | 'Follow-up' | 'Templates' | 'Settings'>('Inbox');
   const [selectedConv, setSelectedConv] = useState<WhatsAppConversation | null>(null);
   const [messageInput, setMessageInput] = useState('');
   const [showIntelligence, setShowIntelligence] = useState(false);
+  const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
+
+  useEffect(() => {
+    if (!selectedConv) {
+      setMessages([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "whatsapp_messages"),
+      where("conversationId", "==", selectedConv.id),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as WhatsAppMessage[];
+      setMessages(msgs);
+    });
+
+    return () => unsubscribe();
+  }, [selectedConv]);
 
   const handleSend = () => {
     if (!selectedConv || !messageInput.trim()) return;
@@ -48,7 +88,8 @@ export function WhatsAppManager({ conversations, onSendMessage, language }: What
     { id: 'Auto Replies', label: t.autoReplies },
     { id: 'Qualification', label: t.qualification },
     { id: 'Follow-up', label: t.followUp },
-    { id: 'Templates', label: t.templates }
+    { id: 'Templates', label: t.templates },
+    { id: 'Settings', label: 'Settings' }
   ];
 
   return (
@@ -112,9 +153,9 @@ export function WhatsAppManager({ conversations, onSendMessage, language }: What
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
-                    <h4 className="text-xs md:text-sm font-black text-[#4A3B3B] truncate">{conv.customerName || conv.customerPhone}</h4>
+                    <h4 className="text-xs md:text-sm font-black text-[#4A3B3B] truncate">{conv.customerName || conv.customerWaId}</h4>
                     <span className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF]">
-                      {new Date(conv.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {conv.lastMessageAt?.toDate ? conv.lastMessageAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
                     </span>
                   </div>
                   <p className="text-[10px] md:text-xs text-[#B9AFAF] truncate mb-2">{conv.lastMessage}</p>
@@ -138,23 +179,25 @@ export function WhatsAppManager({ conversations, onSendMessage, language }: What
           </div>
         </div>
 
-        {/* Chat Area */}
+        {/* Chat Area or Settings Area */}
         <div className={cn(
           "flex-1 bg-white border border-[#FEE2E2] rounded-[2rem] md:rounded-[2.5rem] flex flex-col overflow-hidden transition-all",
-          !selectedConv ? "hidden md:flex" : "flex"
+          (!selectedConv && activeTab !== 'Settings') ? "hidden md:flex" : "flex"
         )}>
-          {selectedConv ? (
+          {activeTab === 'Settings' ? (
+            <WhatsAppSettings brandId={brandId} />
+          ) : selectedConv ? (
             <>
               <div className="p-4 md:p-6 border-b border-[#FEE2E2] flex items-center justify-between bg-[#FFF5F5]/10">
                 <div className="flex items-center gap-3 md:gap-4">
                   <button onClick={() => setSelectedConv(null)} className="md:hidden p-2 -ml-2 text-[#4A3B3B]">
-                    <Search className="w-5 h-5 rotate-90" /> {/* Using search as a back arrow for now or similar */}
+                    <ChevronLeft className="w-5 h-5" />
                   </button>
                   <div className="w-10 h-10 md:w-12 md:h-12 rounded-2xl bg-white border border-[#FEE2E2] flex items-center justify-center">
                     <UserCircle2 className="w-5 h-5 md:w-6 md:h-6 text-[#4A3B3B]" />
                   </div>
                   <div>
-                    <h3 className="text-xs md:text-sm font-black text-[#4A3B3B]">{selectedConv.customerName || selectedConv.customerPhone}</h3>
+                    <h3 className="text-xs md:text-sm font-black text-[#4A3B3B]">{selectedConv.customerName || selectedConv.customerWaId}</h3>
                     <div className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500" />
                       <span className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF] uppercase tracking-widest">{t.activeNow}</span>
@@ -181,27 +224,46 @@ export function WhatsAppManager({ conversations, onSendMessage, language }: What
                   </span>
                 </div>
                 
-                <div className="flex items-start gap-3 md:gap-4 max-w-[90%] md:max-w-[80%]">
-                  <div className="w-8 h-8 rounded-lg bg-[#FFF5F5] border border-[#FEE2E2] flex items-center justify-center flex-shrink-0">
-                    <User className="w-4 h-4 text-[#4A3B3B]" />
+                {messages.map((msg) => (
+                  <div 
+                    key={msg.id}
+                    className={cn(
+                      "flex items-start gap-3 md:gap-4 max-w-[90%] md:max-w-[80%]",
+                      msg.direction === 'outbound' ? "ml-auto flex-row-reverse" : ""
+                    )}
+                  >
+                    <div className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border",
+                      msg.direction === 'outbound' ? "bg-[#4A3B3B] border-[#4A3B3B]" : "bg-[#FFF5F5] border-[#FEE2E2]"
+                    )}>
+                      {msg.direction === 'outbound' ? (
+                        <Bot className="w-4 h-4 text-white" />
+                      ) : (
+                        <User className="w-4 h-4 text-[#4A3B3B]" />
+                      )}
+                    </div>
+                    <div className={cn(
+                      "rounded-2xl p-3 md:p-4 shadow-sm border",
+                      msg.direction === 'outbound' 
+                        ? "bg-[#4A3B3B] text-white rounded-tr-none border-[#4A3B3B] shadow-lg shadow-[#4A3B3B]/10" 
+                        : "bg-white text-[#4A3B3B] rounded-tl-none border-[#FEE2E2]"
+                    )}>
+                      <p className="text-xs md:text-sm leading-relaxed">{msg.content}</p>
+                      <span className={cn(
+                        "text-[8px] md:text-[10px] font-bold mt-2 block",
+                        msg.direction === 'outbound' ? "text-white/50" : "text-[#B9AFAF]"
+                      )}>
+                        {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="bg-white border border-[#FEE2E2] rounded-2xl rounded-tl-none p-3 md:p-4 shadow-sm">
-                    <p className="text-xs md:text-sm text-[#4A3B3B] leading-relaxed">{selectedConv.lastMessage}</p>
-                    <span className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF] mt-2 block">10:42 AM</span>
-                  </div>
-                </div>
+                ))}
 
-                <div className="flex items-start gap-3 md:gap-4 max-w-[90%] md:max-w-[80%] ml-auto flex-row-reverse">
-                  <div className="w-8 h-8 rounded-lg bg-[#4A3B3B] border border-[#4A3B3B] flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-4 h-4 text-white" />
+                {messages.length === 0 && (
+                  <div className="text-center py-10">
+                    <p className="text-xs text-[#B9AFAF]">No messages yet.</p>
                   </div>
-                  <div className="bg-[#4A3B3B] text-white rounded-2xl rounded-tr-none p-3 md:p-4 shadow-lg shadow-[#4A3B3B]/10">
-                    <p className="text-xs md:text-sm leading-relaxed">
-                      {language === 'ar' ? 'أهلاً بيكي! أنا المساعد الذكي لكوزميتيكا. أقدر أساعدك إزاي النهاردة في اختيار المنتجات المناسبة ليكي؟' : "Hello! I'm the AI Assistant for Cosmetica. How can I help you today with our product range?"}
-                    </p>
-                    <span className="text-[8px] md:text-[10px] font-bold text-white/50 mt-2 block">10:43 AM</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="p-4 md:p-6 border-t border-[#FEE2E2] bg-white">
@@ -299,6 +361,152 @@ export function WhatsAppManager({ conversations, onSendMessage, language }: What
             <button className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-[#FF9A9E] hover:underline">
               {t.applySuggestion}
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppSettings({ brandId }: { brandId?: string }) {
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [wabaId, setWabaId] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [channel, setChannel] = useState<any>(null);
+
+  useEffect(() => {
+    if (!brandId) return;
+    const q = query(
+      collection(db, "whatsapp_channels"),
+      where("brandId", "==", brandId),
+      where("ownerId", "==", auth.currentUser?.uid),
+      limit(1)
+    );
+    return onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setChannel({ id: snap.docs[0].id, ...data });
+        setPhoneNumberId(data.phoneNumberId || '');
+        setAccessToken(data.accessToken || '');
+        setWabaId(data.wabaId || '');
+      }
+    });
+  }, [brandId]);
+
+  const handleSave = async () => {
+    if (!brandId || !auth.currentUser) {
+      console.error("Missing brandId or user", { brandId, user: auth.currentUser?.uid });
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      const data = {
+        brandId,
+        ownerId: auth.currentUser.uid,
+        phoneNumberId: phoneNumberId.trim(),
+        accessToken: accessToken.trim(),
+        wabaId: wabaId.trim(),
+        status: 'Connected',
+        updatedAt: serverTimestamp()
+      };
+
+      if (channel) {
+        await setDoc(doc(db, 'whatsapp_channels', channel.id), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'whatsapp_channels'), {
+          ...data,
+          createdAt: serverTimestamp()
+        });
+      }
+      // Success feedback
+      const btn = document.getElementById('save-config-btn');
+      if (btn) {
+        const originalText = btn.innerText;
+        btn.innerText = 'Saved!';
+        btn.classList.add('bg-green-600');
+        setTimeout(() => {
+          btn.innerText = originalText;
+          btn.classList.remove('bg-green-600');
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+      alert('Failed to save settings. Please check console for details.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="p-6 md:p-10 space-y-8 overflow-y-auto">
+      <div>
+        <h3 className="text-lg md:text-xl font-black text-[#4A3B3B] mb-2">WhatsApp API Configuration</h3>
+        <p className="text-xs md:text-sm text-[#B9AFAF]">Connect your WhatsApp Business Account using Meta Graph API credentials.</p>
+      </div>
+
+      <div className="space-y-6 max-w-xl">
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">Phone Number ID</label>
+          <input 
+            type="text" 
+            value={phoneNumberId}
+            onChange={e => setPhoneNumberId(e.target.value)}
+            placeholder="e.g. 105938475629384"
+            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">System User Access Token</label>
+          <input 
+            type="password" 
+            value={accessToken}
+            onChange={e => setAccessToken(e.target.value)}
+            placeholder="EAAB..."
+            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-[#B9AFAF] uppercase tracking-widest ml-4">WhatsApp Business Account ID</label>
+          <input 
+            type="text" 
+            value={wabaId}
+            onChange={e => setWabaId(e.target.value)}
+            placeholder="e.g. 938475629384756"
+            className="w-full px-6 py-4 bg-[#FFF5F5]/50 border border-[#FEE2E2] rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4A3B3B]/10"
+          />
+        </div>
+
+        <div className="pt-4">
+          <button 
+            id="save-config-btn"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full py-4 bg-[#4A3B3B] text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-[#2D2424] transition-all disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Settings className="w-5 h-5" />}
+            Save Configuration
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-[#FFF5F5] border border-[#FEE2E2] rounded-[2rem] p-6 md:p-8">
+        <h4 className="text-xs font-black text-[#4A3B3B] uppercase tracking-widest mb-4">Webhook Information</h4>
+        <div className="space-y-4">
+          <div>
+            <p className="text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Callback URL</p>
+            <code className="block p-3 bg-white border border-[#FEE2E2] rounded-xl text-[10px] break-all">
+              https://{window.location.hostname}/api/whatsapp-webhook
+            </code>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-[#B9AFAF] uppercase mb-1">Verify Token</p>
+            <code className="block p-3 bg-white border border-[#FEE2E2] rounded-xl text-[10px]">
+              abqarino_verify_token
+            </code>
           </div>
         </div>
       </div>

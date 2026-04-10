@@ -224,26 +224,30 @@ export interface WhatsAppChannel {
 export interface WhatsAppConversation {
   id: string;
   ownerId: string;
-  channelId: string;
+  brandId: string;
   customerName: string;
-  customerPhone: string;
+  customerWaId: string;
   lastMessage: string;
-  lastTimestamp: string;
+  lastMessageAt: any;
   intent: 'Pricing' | 'Product Inquiry' | 'Complaint' | 'Order' | 'Follow-up' | 'Unknown';
   leadScore: number;
-  status: 'Open' | 'Resolved' | 'Escalated' | 'Pending AI';
+  status: 'open' | 'resolved' | 'escalated' | 'pending_ai';
   unreadCount: number;
+  updatedAt: any;
+  createdAt: any;
 }
 
 export interface WhatsAppMessage {
   id: string;
   ownerId: string;
   conversationId: string;
-  text: string;
-  sender: 'Customer' | 'AI' | 'Agent';
-  timestamp: string;
-  status: 'Sent' | 'Delivered' | 'Read' | 'Failed';
-  waMessageId?: string;
+  customerWaId: string;
+  content: string;
+  direction: 'inbound' | 'outbound';
+  messageType: string;
+  metaMessageId?: string;
+  timestamp?: string;
+  createdAt: any;
 }
 
 export const VIRAL_HOOKS: string[] = [

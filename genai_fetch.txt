@@ -1,0 +1,38 @@
+function fetchPredictOperationParametersToVertex(fromObject) {
+     * Returns the length of the page fetched each time by this pager.
+     * The iterator will automatically fetch the next page if there are more items
+     * to fetch from the API.
+     * @throws {Error} If there are no more pages to fetch.
+            throw new Error('No more pages to fetch.');
+     * Returns true if there are more pages to fetch from the API.
+            return fetch(url, requestInit);
+            const response = await fetch(url, requestInit);
+        const uploadUrl = await this.fetchUploadUrl(path, fileToUpload.sizeBytes, fileToUpload.mimeType, fileName, body, config === null || config === void 0 ? void 0 : config.httpOptions);
+        const uploadUrl = await this.fetchUploadUrl(path, sizeBytes, mimeType, fileName, body, config === null || config === void 0 ? void 0 : config.httpOptions);
+    async fetchUploadUrl(path, sizeBytes, mimeType, fileName, body, configHttpOptions) {
+        // Spec-compliant fetch implementations
+            // Expo fetch
+    if (typeof fetch !== 'undefined') {
+        return fetch;
+    throw new Error('`fetch` is not defined as a global; Either pass `fetch` to the client, `new GeminiNextGenAPIClient({ fetch })` or polyfill the global, `globalThis.fetch = fetch`');
+                throw new GeminiNextGenAPIClientError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+        // fetch refuses to read the body when the status code is 204.
+     * @param {MergedRequestInit} [opts.fetchOptions] - Additional `RequestInit` options to be passed to `fetch` calls.
+     * @param {Fetch} [opts.fetch] - Specify a custom `fetch` function implementation.
+        this.fetchOptions = options.fetchOptions;
+        this.fetch = (_j = options.fetch) !== null && _j !== void 0 ? _j : getDefaultFetch();
+        const client = new this.constructor(Object.assign(Object.assign(Object.assign({}, this._options), { baseURL: this.baseURL, maxRetries: this.maxRetries, timeout: this.timeout, logger: this.logger, logLevel: this.logLevel, fetch: this.fetch, fetchOptions: this.fetchOptions, apiKey: this.apiKey, apiVersion: this.apiVersion }), options));
+        const response = await this.fetchWithTimeout(url, req, timeout, controller).catch(castToError);
+            // undici throws "TypeError: fetch failed" with cause "ConnectTimeoutError: Connect Timeout Error (attempted address: example:443, timeout: 1ms)"
+    async fetchWithTimeout(url, init, ms, controller) {
+        const fetchOptions = Object.assign(Object.assign(Object.assign({ signal: controller.signal }, (isReadableBody ? { duplex: 'half' } : {})), { method: 'GET' }), options);
+            fetchOptions.method = method.toUpperCase();
+            // use undefined this binding; fetch errors if bound to something else in browser/cloudflare
+            return await this.fetch.call(undefined, url, fetchOptions);
+            body instanceof globalThis.ReadableStream && { duplex: 'half' })), (body && { body })), ((_c = this.fetchOptions) !== null && _c !== void 0 ? _c : {})), ((_d = options.fetchOptions) !== null && _d !== void 0 ? _d : {}));
+        // note: we can't just inline this method inside `fetchWithTimeout()` because then the closure
+            const rawOperation = await this.fetchPredictVideosOperationInternal({
+            const rawOperation = await this.fetchPredictVideosOperationInternal({
+    async fetchPredictVideosOperationInternal(params) {
+            const body = fetchPredictOperationParametersToVertex(params);
+            path = formatMap('{resourceName}:fetchPredictOperation', body['_url']);

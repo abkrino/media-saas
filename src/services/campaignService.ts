@@ -5,7 +5,7 @@ import {
   doc, 
   updateDoc 
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { CampaignBrief } from '../data';
 import { createTask } from './taskEngine';
 
@@ -16,9 +16,13 @@ import { createTask } from './taskEngine';
 
 export async function kickoffCampaign(briefData: Partial<CampaignBrief>) {
   try {
+    const ownerId = auth.currentUser?.uid;
+    if (!ownerId) throw new Error("User not authenticated");
+
     // 1. Create Campaign Brief
     const briefRef = await addDoc(collection(db, 'campaign_briefs'), {
       ...briefData,
+      ownerId,
       status: 'approved', // Auto-approve for now as per kickoff flow
       createdAt: serverTimestamp()
     });

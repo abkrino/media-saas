@@ -76,17 +76,20 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "channelId": { "type": "string" },
+        "brandId": { "type": "string" },
+        "ownerId": { "type": "string" },
         "customerName": { "type": "string" },
-        "customerPhone": { "type": "string" },
+        "customerWaId": { "type": "string" },
         "lastMessage": { "type": "string" },
-        "lastTimestamp": { "type": "string", "format": "date-time" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
         "intent": { "type": "string", "enum": ["Pricing", "Product Inquiry", "Complaint", "Order", "Follow-up", "Unknown"] },
         "leadScore": { "type": "number" },
-        "status": { "type": "string", "enum": ["Open", "Resolved", "Escalated", "Pending AI"] },
-        "unreadCount": { "type": "number" }
+        "status": { "type": "string", "enum": ["open", "resolved", "escalated", "pending_ai"] },
+        "unreadCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "channelId", "customerPhone", "status"]
+      "required": ["customerWaId", "status", "ownerId", "brandId"]
     },
     "WhatsAppMessage": {
       "title": "WhatsApp Message",
@@ -95,13 +98,16 @@
       "properties": {
         "id": { "type": "string" },
         "conversationId": { "type": "string" },
-        "text": { "type": "string" },
-        "sender": { "type": "string", "enum": ["Customer", "AI", "Agent"] },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "status": { "type": "string", "enum": ["Sent", "Delivered", "Read", "Failed"] },
-        "waMessageId": { "type": "string" }
+        "ownerId": { "type": "string" },
+        "content": { "type": "string" },
+        "direction": { "type": "string", "enum": ["inbound", "outbound"] },
+        "messageType": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read", "failed"] },
+        "metaMessageId": { "type": "string" },
+        "rawPayload": { "type": "object" }
       },
-      "required": ["id", "conversationId", "text", "sender", "timestamp"]
+      "required": ["conversationId", "content", "direction", "createdAt", "ownerId"]
     },
     "Deliverable": {
       "title": "Deliverable",

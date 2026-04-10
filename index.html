@@ -4,6 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      (function() {
+        // Global error logging to help debug "Uncaught" errors
+        window.addEventListener('error', function(event) {
+          console.error('Global error:', event.error || event.message);
+        });
+        window.addEventListener('unhandledrejection', function(event) {
+          console.error('Unhandled rejection:', event.reason);
+        });
+
+        try {
+          var target = window;
+          var prop = 'fetch';
+          
+          // Try to find the descriptor
+          var descriptor = Object.getOwnPropertyDescriptor(target, prop);
+          var proto = target;
+          while (!descriptor && proto) {
+            proto = Object.getPrototypeOf(proto);
+            if (proto) descriptor = Object.getOwnPropertyDescriptor(proto, prop);
+          }
+          
+          if (descriptor && descriptor.get && !descriptor.set) {
+            console.log('Detected read-only fetch getter, attempting to fix...');
+            
+            var originalFetch = window.fetch;
+            
+            var newDescriptor = {
+              get: function() { return originalFetch; },
+              set: function(v) { 
+                console.warn('Attempted to overwrite window.fetch, ignoring to prevent crash.');
+              },
+              configurable: true,
+              enumerable: true
+            };
+
+            if (descriptor.configurable) {
+              Object.defineProperty(target, prop, newDescriptor);
+              console.log('Successfully redefined window.fetch on instance.');
+            } else {
+              // If not configurable on prototype, we can still define it on the instance
+              // if it's not already there.
+              if (!target.hasOwnProperty(prop)) {
+                Object.defineProperty(target, prop, newDescriptor);
+                console.log('Successfully defined window.fetch on instance (shadowing prototype).');
+              } else {
+                console.error('window.fetch is non-configurable on the instance itself. Cannot fix.');
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error in fetch polyfill fix:', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

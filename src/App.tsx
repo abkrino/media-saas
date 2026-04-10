@@ -172,18 +172,22 @@ export default function App() {
   const t = translations[language];
 
   const bootstrapAgents = async (uid: string) => {
-    const initialAgents: Partial<AIAgent>[] = [
-      { name: 'CEO Agent', role: 'Strategic Oversight', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'Brand Research Agent', role: 'Market Analysis', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'Content Strategist', role: 'Creative Planning', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'Creative Director', role: 'Visual Identity', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'Video Producer', role: 'Motion Content', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'Media Buyer', role: 'Ad Performance', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
-      { name: 'WhatsApp Sales Manager', role: 'Lead Conversion', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() }
-    ];
+    try {
+      const initialAgents: Partial<AIAgent>[] = [
+        { name: 'CEO Agent', role: 'Strategic Oversight', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'Brand Research Agent', role: 'Market Analysis', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'Content Strategist', role: 'Creative Planning', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'Creative Director', role: 'Visual Identity', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'Video Producer', role: 'Motion Content', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'Media Buyer', role: 'Ad Performance', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() },
+        { name: 'WhatsApp Sales Manager', role: 'Lead Conversion', status: 'Idle', tasksCompleted: 0, lastUpdate: new Date().toISOString() }
+      ];
 
-    for (const agent of initialAgents) {
-      await addDoc(collection(db, 'ai_agents'), { ...agent, ownerId: uid });
+      for (const agent of initialAgents) {
+        await addDoc(collection(db, 'ai_agents'), { ...agent, ownerId: uid });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'ai_agents');
     }
   };
 
@@ -228,7 +232,7 @@ export default function App() {
       setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as AgentTask)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'agent_tasks'));
 
-    const convsQuery = query(collection(db, 'whatsapp_conversations'), where('ownerId', '==', user.uid), orderBy('lastTimestamp', 'desc'));
+    const convsQuery = query(collection(db, 'whatsapp_conversations'), where('ownerId', '==', user.uid), orderBy('lastMessageAt', 'desc'));
     const unsubConvs = onSnapshot(convsQuery, (snap) => {
       setConversations(snap.docs.map(d => ({ id: d.id, ...d.data() } as WhatsAppConversation)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'whatsapp_conversations'));
@@ -469,23 +473,34 @@ export default function App() {
             />
           )}
           {activeView === 'inbox' && <OperationsInbox key="inbox" tasks={tasks} agents={agents} onAssign={async (tid, aid) => {
-            await setDoc(doc(db, 'agent_tasks', tid), { assignedTo: aid, status: 'In Progress' }, { merge: true });
-            await setDoc(doc(db, 'ai_agents', aid), { status: 'Working', activeTask: tasks.find(t => t.id === tid)?.title }, { merge: true });
+            try {
+              await setDoc(doc(db, 'agent_tasks', tid), { assignedTo: aid, status: 'In Progress' }, { merge: true });
+              await setDoc(doc(db, 'ai_agents', aid), { status: 'Working', activeTask: tasks.find(t => t.id === tid)?.title }, { merge: true });
+            } catch (error) {
+              handleFirestoreError(error, OperationType.UPDATE, `agent_tasks/${tid}`);
+            }
           }} language={language} />}
-          {activeView === 'whatsapp' && <WhatsAppManager key="wa" conversations={conversations} onSendMessage={async (cid, text) => {
-            await addDoc(collection(db, 'whatsapp_messages'), {
-              conversationId: cid,
-              text,
-              sender: 'Agent',
-              timestamp: new Date().toISOString(),
-              status: 'Sent',
-              ownerId: user.uid
-            });
-            await setDoc(doc(db, 'whatsapp_conversations', cid), {
-              lastMessage: text,
-              lastTimestamp: new Date().toISOString(),
-              unreadCount: 0
-            }, { merge: true });
+          {activeView === 'whatsapp' && <WhatsAppManager key="wa" brandId={activeBrand?.id} conversations={conversations} onSendMessage={async (cid, text) => {
+            try {
+              const conv = conversations.find(c => c.id === cid);
+              await addDoc(collection(db, 'whatsapp_messages'), {
+                conversationId: cid,
+                customerWaId: conv?.customerWaId || '',
+                content: text,
+                direction: 'outbound',
+                messageType: 'text',
+                createdAt: serverTimestamp(),
+                ownerId: user.uid
+              });
+              await setDoc(doc(db, 'whatsapp_conversations', cid), {
+                lastMessage: text,
+                lastMessageAt: serverTimestamp(),
+                unreadCount: 0,
+                updatedAt: serverTimestamp()
+              }, { merge: true });
+            } catch (error) {
+              handleFirestoreError(error, OperationType.WRITE, 'whatsapp_messages');
+            }
           }} language={language} />}
           {activeView === 'research' && <ResearchView key="research" brand={activeBrand} research={research} />}
           {activeView === 'assets' && <AssetManagerView key="assets" brand={activeBrand} assets={assets} />}
@@ -676,7 +691,7 @@ function DashboardView({ brand, research, assets, jobs, agents, tasks, conversat
                         <UserCircle2 className="w-4 h-4 text-[#4A3B3B]" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[10px] md:text-xs font-black text-[#4A3B3B] truncate">{conv.customerName || conv.customerPhone}</p>
+                        <p className="text-[10px] md:text-xs font-black text-[#4A3B3B] truncate">{conv.customerName || conv.customerWaId}</p>
                         <p className="text-[8px] md:text-[10px] font-bold text-[#B9AFAF] uppercase tracking-widest truncate">{conv.lastMessage}</p>
                       </div>
                     </div>
