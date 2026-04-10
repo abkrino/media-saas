@@ -54,6 +54,13 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
   const [showIntelligence, setShowIntelligence] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
 
+  const normalizeMessage = (id: string, raw: Record<string, any>) => ({
+    id,
+    ...raw,
+    direction: raw.direction || raw.type || 'inbound',
+    content: raw.content || raw.message || '',
+  }) as WhatsAppMessage;
+
   useEffect(() => {
     if (!selectedConv) {
       setMessages([]);
@@ -65,16 +72,35 @@ export function WhatsAppManager({ brandId, conversations, onSendMessage, languag
       where("conversationId", "==", selectedConv.id),
       orderBy("createdAt", "asc")
     );
+    const fallbackQ = query(
+      collection(db, "whatsapp_messages"),
+      where("conversationId", "==", selectedConv.id)
+    );
+
+    let fallbackUnsubscribe: (() => void) | null = null;
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as WhatsAppMessage[];
+      const msgs = snapshot.docs.map(doc => normalizeMessage(doc.id, doc.data()));
       setMessages(msgs);
+    }, () => {
+      if (!fallbackUnsubscribe) {
+        fallbackUnsubscribe = onSnapshot(fallbackQ, (fallbackSnapshot) => {
+          const msgs = fallbackSnapshot.docs
+            .map(doc => normalizeMessage(doc.id, doc.data()))
+            .sort((a, b) => {
+              const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+              const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+              return aTime - bTime;
+            });
+          setMessages(msgs);
+        });
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      fallbackUnsubscribe?.();
+    };
   }, [selectedConv]);
 
   const handleSend = () => {
